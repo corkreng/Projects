@@ -1,0 +1,12 @@
+Stock analyzer tool
+
+The goal of this project is to create an easy to use interface for analyzing stocks.
+It is an ongoing project, which I plan to update regularly with different data
+science and statistical methodologies to understand stock price movement. 
+Plan
+  sentiment analysis using NLP techniques
+  time series analysis( different moving averages, etc)
+  correlation to economic indicators
+  correlation to competitors or indexes
+  Black-Scholes option pricing model?
+  
