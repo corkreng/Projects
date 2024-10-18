@@ -1,0 +1,239 @@
+---
+title: '2'
+author: "Grant Corkren"
+date: "2023-04-28"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+setwd("~/MY_R")
+library(openxlsx)
+library(TidyDensity)
+library(aTSA)
+library(itsmr)
+library(forecast)
+library(uroot)
+library(seastests)
+
+A= read.xlsx("lag.xlsx")
+
+A[1,6]=0
+A[1,7]=0
+A[2,7]=0
+A[1,8]=0
+A[2,8]=0
+A[3,8]=0
+level <- A[,c(2,4)]
+ind <- A[,2]
+
+level <- level[!is.na(ind),]
+
+
+head(test)
+```
+
+
+```{r}
+tsData <- ts(level[,1], start = c(2011,1), frequency = 365)
+tstrain<-window(tsData, start=c(2011,1), end= c(2019,364))
+tstest<-window(tsData, start=c(2020,1))
+
+```
+```{r}
+precip<-ts(A[,5], start = c(2011,1), frequency = 365)
+ts.plot(precip)
+```
+
+
+```{r}
+naive = snaive(tstrain,  h=length(tstest))
+accuracy(naive, tstest)
+```
+```{r}
+plot(tsData, col="blue", xlab="Year", ylab="waterlevel", main="Seasonal naive forecast",type='l')
+lines(naive$mean, col="red", lwd=2)
+```
+```{r}
+ets_model=ets(tstrain, allow.multiplicative.trend = TRUE)
+summary(ets_model)
+```
+
+```{r}
+ets_forecast=forecast(ets_model, h=length(tstest))
+accuracy(ets_forecast, tstest)
+plot(tsData, col="blue", xlab="Year", ylab="waterlevel", main="exponential forecast",type='l')
+lines(ets_forecast$mean, col="red", lwd=2)
+```
+
+
+```{r}
+tbats_model = tbats(tstrain)
+tbats_forecast = forecast(tbats_model, h=length(tstest))
+accuracy(tbats_forecast, tstest)
+plot(tsData, col="blue", xlab="Year", ylab="waterlevel", main="tbats forecast",type='l')
+lines(tbats_forecast$mean, col="red", lwd=2)
+```
+```{r}
+tbats_model
+```
+
+
+```{r}
+b<-as.matrix(A[1:3284,6:8])
+arima_optimal<-auto.arima(tstrain, xreg = b, max.p = 5, max.q = 5,
+                          max.P = 365, d = 1, max.Q = 365, D = 1, stationary = TRUE, seasonal = TRUE)
+arima_optimal
+#arima_optforecast= forecast(arima_optimal, h=length(tstest))
+```
+
+
+
+
+
+
+
+
+```{r}
+arima_opt<-Arima(tstrain,order = c(5,0,3) ,xreg = b )
+arima_optforecast= forecast(arima_opt, h=1118, xreg = c)
+```
+
+```{r}
+accuracy(arima_optforecast, tstest)
+plot(tsData, col="blue", xlab="Year", ylab="waterlevel", main="arima optimal forecast",type='l')
+lines(arima_optforecast$mean, col="red", lwd=2)
+```
+
+
+
+```{r}
+library(tseries)
+
+library(parallel)
+library(MSwM)
+b<-as.matrix(b)
+#Model with only intercept
+mod<-lm(tstrain ~ b)
+summary(mod)
+#Fit regime-switching model
+msar1=msmFit(mod, k=2, sw=c(T,T,T,T,T,T,T), p=2)
+msar2= msmFit(mod, k=2, sw=c(T,T,T,T,T,T,T,T), p=3)
+summary(msar1)
+summary(msar2)
+
+```
+```{r}
+mod<-lm(tstrain ~ 1)
+msar2= msmFit(mod, k=2, sw=c(T,T,T,T,T), p=3)
+summary(msar2)
+```
+
+
+
+
+
+
+
+
+
+plot(mod.mswm)
+```{r}
+plotDiag(msar1)
+plotDiag(msar2)
+```
+
+
+library(mhsmm)
+J<-2
+initial <- rep(1/J,J)
+
+
+init0 <- rep(1/J,J)
+P0 <- matrix(1/J,nrow=J,ncol=J)
+b0 <- list(mu=c(0,0),sigma=c(1,1))
+startval <- hmmspec(init=init0, trans=P0,parms.emission=b0,dens.emission=dnorm.hsmm) 
+h1 = hmmfit(tstrain,startval,mstep=mstep.norm)
+
+plot(h1$loglik,type='b',ylab='Log-likelihood',xlab='Iteration')
+summary(h1)
+
+
+
+mean(test$s!=predict(h1,tstest)$s)
+predhmm=predict(h1,tstest)
+accuracy(predhmm, tstest)
+
+
+
+```{r}
+c<-as.matrix(A[1:1118,6:8])
+newarima<-stlm(tstrain, s.window = "periodic", method =  "arima",  biasadj = FALSE, xreg = b)
+
+predicted<-forecast(newarima, h=length(tstest), newxreg=c)
+accuracy(predicted, tstest)
+
+```
+```{r}
+newarima1$model
+```
+
+
+
+```{r}
+plot(tsData, col="blue", xlab="Year", ylab="waterlevel", main="",type='l')
+lines(predicted$mean, col="red", lwd=2)
+```
+
+
+```{r}
+newarima1<-stlm(tstrain, s.window = 365, method =  "arima",lambda = TRUE,  biasadj = TRUE)
+
+predicted<-forecast(newarima1, h=length(tstest))
+accuracy(predicted, tstest)
+
+```
+```{r}
+plot(tsData, col="blue", xlab="Year", ylab="waterlevel", main="",type='l')
+lines(predicted$mean, col="red", lwd=2)
+
+```
+```{r}
+
+```
+
+
+
+```{r}
+newets<-stlm(tstrain, s.window = "periodic", method =  "ets",
+  etsmodel = "ZZN", lambda = "auto", biasadj = FALSE)
+
+predicted<-forecast(newets, h=length(tstest) )
+accuracy(predicted, tstest)
+
+```
+
+```{r}
+newets$model
+```
+
+
+
+
+```{r}
+plot(tsData, col="blue", xlab="Year", ylab="waterlevel", main="Exponential seasonally adjusted forecast",type='l')
+lines(predicted$mean, col="red", lwd=2)
+
+```
+
+
+Forecasts of STL objects are obtained by applying a non-seasonal forecasting method to the seasonally adjusted data and re-seasonalizing using the last year of the seasonal component.
+
+
+
