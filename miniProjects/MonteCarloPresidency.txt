@@ -1,0 +1,2 @@
+For each state in the presidential election there exist a beta distribution of votes.
+Using the Beta distribution of each state we can run a monte carlo simulation to determine the distribution of electoral college votes. 
