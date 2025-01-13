@@ -1,0 +1,236 @@
+---
+title: "MonteCarloPresidency"
+author: "Grant Corkren"
+date: "2025-01-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+This is a just a mini-project for finding the distribution of electoral college votes.
+
+Simulated polling data will be based on the 2024 election results proportions and taking a random n=1 sample for each state from standard normal distribution. That will then be transformed into a simulated proportion. The simulated sample sizes will be calculated by dividing the total vote count of each state by ten thousand. 
+
+Polling data where sample sizes of n > 30 for each state would be the appropiate methodology. In that case the CLT would apply to the mean of proportions for each state. That would give it a normal distribution for each state where a monte carlo simulation could be applied. That method will be applied, but it implies independence among states. A multivariate normal distribution where the covariance matrix is built on previous elections will also be used. 
+
+```{r}
+setwd("~/MY_R")
+# read in data
+library(openxlsx) 
+library(ggplot2)
+sim_data <- read.xlsx("2024results.xlsx")
+head(sim_data)
+```
+```{r}
+# total votes column divided by 10,000
+sim_data <- sim_data %>%
+  mutate(
+    total_votes = Trump + Harris,          
+    simulated_sample_size = round(total_votes / 10000)  
+  )
+
+```
+
+```{r}
+# simulated proportions
+set.seed(1)  
+sim_data <- sim_data %>%
+  rowwise() %>%
+  mutate(
+    simulated_proportion = rnorm(
+      n = 1,                                 
+      mean = REPUBLICANPERCENTAGE,          
+      sd = sqrt((REPUBLICANPERCENTAGE * (1 - REPUBLICANPERCENTAGE)) / simulated_sample_size) 
+    )
+  ) %>%
+  ungroup()
+
+head(sim_data)
+```
+
+```{r}
+sim_data <- sim_data %>%
+  mutate(
+    variance = (simulated_proportion * (1 - simulated_proportion)) / simulated_sample_size
+  )
+head(sim_data)
+```
+
+```{r}
+tail(sim_data)
+```
+
+
+Two approaches 
+  1) Assume Independence  
+  2) use past data to get covariance matrix
+
+
+# Assumed Independence
+
+```{r}
+# monte carlo simulation
+set.seed(1)  
+n_simulations <- 10000  
+
+
+simulation_results <- replicate(n_simulations, {
+  simulated_values <- pmin(pmax(rnorm(nrow(sim_data), mean = sim_data$simulated_proportion, 
+                                      sd = sqrt(sim_data$variance)), 0), 1)
+  
+  total_electoral_votes <- sum(sim_data$Elec_votes[simulated_values > 0.5])
+  
+  return(total_electoral_votes)
+})
+
+simulation_df <- data.frame(total_electoral_votes = simulation_results)
+
+summary(simulation_df$total_electoral_votes)
+below_270 <- sum(simulation_df$total_electoral_votes < 270)
+below_270/n_simulations
+
+ggplot(simulation_df, aes(x = total_electoral_votes)) +
+  geom_histogram(binwidth = 10, fill = "blue", color = "black", alpha = 0.7) +
+   geom_vline(xintercept = 270, color = "red", linetype = "dashed", size = 1) +
+  labs(
+    title = "Distribution of Republican Electoral College Votes",
+    x = "Electoral College Votes",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+```
+This simulation shows Democrats winning the presidency 2.35%. 
+
+# past election data for covariance matrix (excluding diagonal)
+  
+
+```{r}
+# past data for covariance matrix
+past_data <- read.csv("1976-2020-president.csv")
+head(past_data)
+```
+
+
+```{r}
+past_data <- past_data[, (names(past_data) %in% c("year", "state","candidatevotes"  ,"party_simplified"))]
+
+head(past_data)
+```
+
+
+```{r}
+# new dataset with Rep_percent, state, year
+library(dplyr)
+new_data <- past_data %>%
+  filter(party_simplified %in% c("DEMOCRAT", "REPUBLICAN")) %>%
+  group_by(year, state) %>%
+  summarise(
+    democrat_votes = sum(candidatevotes[party_simplified == "DEMOCRAT"]),
+    republican_votes = sum(candidatevotes[party_simplified == "REPUBLICAN"]),
+    republican_proportion = republican_votes / (democrat_votes + republican_votes),
+    .groups = "drop"
+  ) %>%
+  select(year, state, republican_proportion)
+
+head(new_data)
+```
+
+
+
+```{r,  fig.width=6, fig.height=6}
+ggplot(new_data, aes(x = year, y = republican_proportion)) +
+  geom_point(size = 2, alpha = 0.7) +
+  facet_wrap(~ state) +
+  theme_minimal()
+```
+Lets choose the past four elections for our covariance matrix
+
+```{r}
+new_data <- new_data %>%
+  filter(year %in% c(2020, 2016, 2012, 2008, 2004))
+```
+
+
+
+
+```{r}
+first_51_states <- new_data$state[1:51 ]
+first_51_states <- data.frame(
+  new_states = new_data$state[1:51],
+  sim_states = sim_data$State[1:51]
+)
+
+# View the result
+print(first_51_states)
+```
+They match. 
+
+```{r}
+# create proportion matrix col1 is Alabama, col2 alaska, etc.
+library(tidyr)
+
+wide_data <- new_data %>%
+  pivot_wider(
+    names_from = state,            
+    values_from = republican_proportion  
+  )
+
+head(wide_data)
+```
+
+```{r}
+library(dplyr)
+numerical_data <- wide_data %>%
+  dplyr::select(-year)
+
+cov_matrix <- cov(numerical_data, use = "pairwise.complete.obs")
+
+#print(cov_matrix)
+```
+
+
+
+
+```{r}
+# monte carlo simulation
+library(MASS)  
+
+set.seed(1)  
+n_simulations <- 10000
+
+simulation_results <- replicate(n_simulations, {
+  # multivariate normal distribution
+  simulated_proportions <- mvrnorm(1, mu = sim_data$simulated_proportion, Sigma = cov_matrix)
+  
+  simulated_proportions <- pmin(pmax(simulated_proportions, 0), 1)
+  
+  total_electoral_votes <- sum(sim_data$Elec_votes[simulated_proportions > 0.5])
+  
+  return(total_electoral_votes)
+})
+
+simulation_df <- data.frame(total_electoral_votes = simulation_results)
+
+summary(simulation_df$total_electoral_votes)
+
+below_270 <- sum(simulation_df$total_electoral_votes < 270)
+below_270/n_simulations
+
+library(ggplot2)
+ggplot(simulation_df, aes(x = total_electoral_votes)) +
+  geom_histogram(binwidth = 10, fill = "blue", color = "black", alpha = 0.7) +
+   geom_vline(xintercept = 270, color = "red", linetype = "dashed") +
+  labs(
+    title = "Distribution of Republican Electoral College Votes",
+    x = "Electoral College Votes",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+```
+This simulation show Democrats winning 21.83%
+
+
