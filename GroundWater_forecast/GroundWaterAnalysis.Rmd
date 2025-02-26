@@ -1,10 +1,11 @@
 ---
-title: 'Groundwater Level Analysis'
+title: "Groundwater Level Analysis"
 author: "Grant Corkren"
 date: "2023-04-28"
 output:
-  html_document: default
+  pdf_document: default
   word_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -12,8 +13,16 @@ knitr::opts_chunk$set(echo = TRUE)
 options(warn = -1)
 ```
 
+This project was done in a consulting class where I consulted the Geological Survey of Alabama on the height of water in a well located in Tuscaloosa County. I was tasked with finding if their was a trend and seasonality. Additionally I was asked if it could be forecasted and if rain effected well water height. 
 
-```{r}
+This analysis includes time series decomposition to answer the question of trend and seasonality. Their is no trend but their is seasonality. For modeling ARIMA models their needs to be stationarity so a seasonal difference was taken. It also includes an ARMA model with rain as a variable to answer whether or not rain effects well water level. The resulting coefficient of rain in that ARIMA model was 0.02 and was statistically significant. 
+
+ARIMA models were applied to answer the question of forecasting. Rain is not used as a variable as that would need to be forecasted also or used conditionally.
+
+Ultimately all of the forecasting models suffered from a non constant variance. A second analysis has been done to explore the time series data further and apply GARCH models. 
+
+
+```{r, include=FALSE}
 setwd("~/MY_R")
 library(openxlsx)
 library(TidyDensity)
@@ -37,6 +46,17 @@ tail(data)
 ```
 
 
+```{r}
+library(ggplot2)
+# Analyze rain
+ggplot(data, aes(x = precip)) +
+  geom_histogram(binwidth = .25, fill = "blue", color = "white") +
+  labs(title = "Histogram of Rain", x = "Value", y = "Frequency") +
+  theme_minimal()
+
+summary(data$precip)
+
+```
 
 
 
@@ -51,21 +71,9 @@ ggplot(data, aes(x = DATE)) +
 
 ```
 
-```{r}
-library(zoo)
-data$WaterLevel_MA <- rollmean(data$waterlevel, k = 30, fill = NA)
-data$Rain_MA <- rollmean(data$precip, k = 30, fill = NA)
 
-ggplot(data, aes(x = DATE)) + 
-  geom_line(aes(y = WaterLevel_MA, color = "Water Level MA")) + 
-  labs(y = "Moving Average", title = "30-Day Moving Average of Water Level")
-ggplot(data, aes(x = DATE)) + 
-  geom_line(aes(y = Rain_MA, color = "Rain MA")) +
-  labs(y = "Moving Average", title = "30-Day Moving Average of Rain")
 
-```
-
-```{r}
+```{r, include=FALSE}
 
 # Use ses with alpha = smoothing parameter
 data$WaterLevel_EWMA <- ses(data$waterlevel, alpha = 0.3)$fitted
@@ -102,6 +110,7 @@ ggplot(data, aes(x = DATE)) +
 ```
 
 ```{r}
+# add actual Too
 library(forecast)
 library(tseries)
 naive_model <- naive( train_data, h = length(test_data))
@@ -125,13 +134,14 @@ library(tseries)
 adf_test <- adf.test(data$water_adj)
 print(adf_test)
 ```
-It is stationary. 
-
+Using the Augmented Dickey-Fuller Test shows the seasonal differenced time series is stationary.
 
 ```{r}
 acf(data$water_adj, main = "ACF of Water Level")
 pacf(data$water_adj, main = "PACF of Water Level")
 ```
+## Rain as exogenous regressor
+This model is not intended for forecasting although it could be with conditional forecasting. This model is intended to answer whether or not rain has an effect on the waterlevel of the well. 
 ```{r}
 library(forecast)
 xreg_train = data$precip[1:3000]
@@ -140,34 +150,77 @@ xreg_test = data$precip[3001:4403]
 # ARIMA model with Rain as an external regressor
 
 arima_with_rain <- auto.arima(ts_train_adj, xreg = xreg_train)
-summary(arima_with_rain)
-arima_forecast = forecast(arima_with_rain, h=length(test_data), xreg= xreg_test)
-arima_forecast$mean = arima_forecast$mean + ts_season[3001:4403]
-  
-  
-accuracy(arima_forecast, test_data)
-plot(train_data, col="blue", xlab="Year", ylab="waterlevel", main="ARIMA with Rain forecast",type='l')
-lines(arima_forecast$mean, col="red", lwd=2)
+
+
 ```
 Are baseline model is the naive model with seasonal adjustment which has a mase test 9.7. This arima model has a better mase. 
 
+```{r}
+# computing p values
+model <- arima(ts_train_adj, order = c(3, 1, 3), xreg = xreg_train)
 
+coefs <- model$coef  
+se <- sqrt(diag(model$var.coef))
+
+
+t_values <- coefs / se
+
+# Computing p-values (two-tailed test)
+p_values <- 2 * (1 - pt(abs(t_values), df = length(ts_train_adj) - length(coefs)))
+
+
+results <- data.frame(Coefficient = coefs, Std_Error = se, t_value = t_values, p_value = p_values)
+print(results)
+
+```
+All p-values are statistically signficant. 
 
 ```{r}
 checkresiduals(arima_with_rain)
 ```
-p-value is good but variance is not constant. 
+For a first model it performs fairly well but suffers from a non-constant variance in residuals. My best guess is that the winter period, which is more volatile, is contributing to that. 
 
 
+## Forecasting models
 
-rain moving average as regressor
+# ARIMA
+
 ```{r}
-# ARIMA model with EWMA of Rain as an external regressor
-arima_with_ewma_rain <- auto.arima(ts_train_adj, xreg = xreg_train)
-summary(arima_with_ewma_rain)
+#ARMA without rain for forecasting
+arima_no_rain <- auto.arima(ts_train_adj)
+summary(arima_no_rain)
+arima_forecast = forecast(arima_no_rain, h=length(test_data))
+arima_forecast$mean = arima_forecast$mean + ts_season[3001:4403]
+  
+  
+accuracy(arima_forecast, test_data)
+plot(train_data, col="blue", xlab="Year", ylab="waterlevel", main="ARIMA with Rain forecast",type='l')
+lines(arima_forecast$mean, col="red", lwd=2)
 
 
-arima_forecast = forecast(arima_with_ewma_rain, h=length(test_data), xreg= xreg_test)
+```
+```{r}
+# computing p values
+model <- arima(ts_train_adj, order = c(2, 1, 2))
+
+coefs <- model$coef  
+se <- sqrt(diag(model$var.coef))
+
+
+t_values <- coefs / se
+
+# Computing p-values (two-tailed test)
+p_values <- 2 * (1 - pt(abs(t_values), df = length(ts_train_adj) - length(coefs)))
+
+
+results <- data.frame(Coefficient = coefs, Std_Error = se, t_value = t_values, p_value = p_values)
+print(results)
+```
+The AR3 was not statistically significant and was removed.
+
+```{r}
+summary(model)
+arima_forecast = forecast(model, h=length(test_data))
 arima_forecast$mean = arima_forecast$mean + ts_season[3001:4403]
   
   
@@ -175,222 +228,17 @@ accuracy(arima_forecast, test_data)
 plot(train_data, col="blue", xlab="Year", ylab="waterlevel", main="ARIMA with Rain forecast",type='l')
 lines(arima_forecast$mean, col="red", lwd=2)
 ```
- 
-
-The best arima model is rain with arima(3,1,2) but has problems repeating periods of increased variance. 
-
-
-
-
-Method #2
-The Analysis and models show that are is a clear change in variation previous tried. The increase of variation occurs in a period manner which may be explain by bringing in new variables that correlate with the time period. The variables that could explain this are temperature, windspeed, waterlevel of  lake Tucsaloosa. 
-
- 
-```{r}
-library(dplyr)
-data2 <- read.csv('3874603.csv', header=TRUE)
-data2 <- data2 %>% filter(STATION == "USW00093806")
-data2 <- data2[, !(names(data2) %in% c("NAME", "STATION","TAVG"))]
-head(data2)
-```
-
-Read in lake waterlevel 
-```{r}
-head(data)
-```
-Joining the datasets 
-```{r}
-data$DATE <- as.Date(data$DATE)
-data2$DATE <- as.Date(data2$DATE)
-data3 <- merge(data,data2 , by = "DATE")
-head(data3)
-tail(data3)
-```
 
 ```{r}
-nrow(data3)
+checkresiduals(model)
 ```
 
-```{r}
-ts_water <- ts(data3$waterlevel, frequency = 365)
-
-train_data <- ts_water[1:3000]
-test_data <- ts_water[3001:4343]
-```
-
-```{r}
-
-decomposition <- stl(ts_water, s.window = "periodic")
-plot(decomposition)
-```
-
-```{r}
-data3$water_adj <- data3$waterlevel - decomposition$time.series[, "seasonal"] 
-ts_season <- ts(decomposition$time.series[, "seasonal"])
-ts_adj <- ts(data3$waterlevel) - ts_season
-ts_train_adj <- ts_adj[1:3000]
-test_test_adj <- ts_adj[3001:4343]
-
-ggplot(data3, aes(x = DATE)) + 
-  geom_line(aes(y = water_adj, color = "Water Level Adjusted")) + 
-  labs(y = "Values", title = "Daily Water Level Adjusted")
-
-ts_noadj <- ts(data3$waterlevel)
-ts_train_noadj <- ts_adj[1:3000]
-test_test_noadj <- ts_adj[3001:4343]
-```
-
-```{r}
-ggplot(data3, aes(x = DATE)) + 
-  geom_line(aes(y = AWND, color = "Average Wind Speed")) + 
-  labs(y = "Values", title = "Average Wind Speend")
-ggplot(data3, aes(x = DATE)) + 
-  geom_line(aes(y = TMAX, color = "Temp Max")) +
-  labs(y = "Values", title = "Temperature Maximum")
-ggplot(data3, aes(x = DATE)) + 
-  geom_line(aes(y = TMIN, color = "Temp Min")) +
-  labs(y = "Values", title = "Temperature Minimum")
-```
+Given the seasonal naive model has a testing MASE of 9.7, it can be concluded that seasonally adjust ARIMA model with the order (Auto Regressive order of 2, Integration order of 1, Moving Average order of 2) is a better model. This model does suffer from a non constant variance of residuals. Examining the residuals of the model shows that the residuals are 
 
 
-```{r}
-sum(is.na(data3$AWND))  
-sum(is.na(data3$TMAX))
-sum(is.na(data3$TMIN))
-sum(is.na(data3$TDIFF))
-```
+## Conclusion
 
-```{r}
-data3$AWND <- na.approx(data3$AWND, na.rm = FALSE)
-data3$TMAX <- na.approx(data3$TMAX, na.rm = FALSE)
-data3$TMIN <- na.approx(data3$TMIN, na.rm = FALSE)
-```
-
-Differencing of max and min temp
-```{r}
-data3$TDIFF <- data3$TMAX - data3$TMIN
-ggplot(data3, aes(x = DATE)) + 
-  geom_line(aes(y = TDIFF, color = "Temp DIFF")) +
-  labs(y = "Values", title = "Temperature Difference")
-```
-
-
-```{r}
-data3$AWND_EWMA <- ses(data3$AWND, alpha = 0.3)$fitted
-data3$TMAX_EWMA <- ses(data3$TMAX, alpha = 0.3)$fitted
-data3$TMIN_EWMA <- ses(data3$TMIN, alpha = 0.3)$fitted
-data3$TDIFF_EWMA <- ses(data3$TDIFF, alpha = 0.3)$fitted
-ggplot(data3, aes(x = DATE)) + 
-  geom_line(aes(y = AWND_EWMA, color = "Wind EWMA")) +
-  labs(y = "Exponentially Weighted Moving Average", title = "Exponentially Weighted Moving Average of Average Wind Speed")
-ggplot(data3, aes(x = DATE)) + 
-  geom_line(aes(y = TMAX_EWMA, color = "Temp Max EWMA")) +
-  labs(y = "Exponentially Weighted Moving Average", title = "Exponentially Weighted Moving Average of Temperature Maximum")
-ggplot(data3, aes(x = DATE)) + 
-  geom_line(aes(y = TMIN_EWMA, color = "Temp Min EWMA")) +
-  labs(y = "Exponentially Weighted Moving Average", title = "Exponentially Weighted Moving Average of Temperature Minimum")
-ggplot(data3, aes(x = DATE)) + 
-  geom_line(aes(y = TDIFF_EWMA, color = "Temp DIFF EWMA")) +
-  labs(y = "Exponentially Weighted Moving Average", title = "Exponentially Weighted Moving Average of Temperature Difference")
-```
-
-Auto Arma not engineered regressors
-```{r}
-library(forecast)
-# Define the target time series
-Precipreg_train = data3$precip[1:3000]
-Precipreg_test = data3$precip[3001:4343]
-AWNDreg_train = data3$AWND[1:3000]
-AWNDreg_test = data3$AWND[3001:4343]
-TMAXreg_train = data3$TMAX[1:3000]
-TMAXreg_test = data3$TMAX[3001:4343]
-TMINreg_train = data3$TMIN[1:3000]
-TMINreg_test = data3$TMIN[3001:4343]
-#TDIFFreg_train = data3$TDIFF[1:3000]
-#TDIFFreg_test = data3$TDIFF[3001:4343]
-
-xreg_train<- cbind(Precipreg_train, AWNDreg_train, TMAXreg_train, TMINreg_train)
-xreg_test<- cbind(Precipreg_test, AWNDreg_test, TMAXreg_test, TMINreg_test)
-# ARIMA model with Rain as an external regressor
-
-arima_with_regs <- auto.arima(ts_train_adj, xreg = xreg_train)
-summary(arima_with_regs)
-arima_forecast = forecast(arima_with_regs, h=length(test_data), xreg= xreg_test)
-arima_forecast$mean = arima_forecast$mean + ts_season[3001:4343]
-  
-  
-accuracy(arima_forecast, test_data)
-plot(train_data, col="blue", xlab="Year", ylab="waterlevel", main="ARIMA with Multiple Regessors forecast",type='l')
-lines(arima_forecast$mean, col="red", lwd=2)
-```
-
-```{r}
-checkresiduals(arima_with_regs)
-```
-Seasonality with a period of increase variation still the analysis. Temperature and Wind have little effect on the waterlevel. 
-
-
-```{r}
-library(forecast)
-# Define the target time series
-Precipreg_train = data3$precip[1:3000]
-Precipreg_test = data3$precip[3001:4343]
-AWNDreg_train = data3$AWND_EWMA[1:3000]
-AWNDreg_test = data3$AWND_EWMA[3001:4343]
-TMAXreg_train = data3$TMAX_EWMA[1:3000]
-TMAXreg_test = data3$TMAX_EWMA[3001:4343]
-TMINreg_train = data3$TMIN_EWMA[1:3000]
-TMINreg_test = data3$TMIN_EWMA[3001:4343]
-TDIFFreg_train = data3$TDIFF_EWMA[1:3000]
-TDIFFreg_test = data3$TDIFF_EWMA[3001:4343]
-
-xreg_train<- cbind(Precipreg_train, AWNDreg_train, TMAXreg_train, TMINreg_train, TDIFFreg_train)
-xreg_test<- cbind(Precipreg_test, AWNDreg_test, TMAXreg_test, TMINreg_test, TDIFFreg_test)
-# ARIMA model with Rain as an external regressor
-
-arima_with_regs <- auto.arima(ts_train_adj, xreg = xreg_train)
-summary(arima_with_regs)
-arima_forecast = forecast(arima_with_regs, h=length(test_data), xreg= xreg_test)
-arima_forecast$mean = arima_forecast$mean + ts_season[3001:4343]
-  
-  
-accuracy(arima_forecast, test_data)
-plot(train_data, col="blue", xlab="Year", ylab="waterlevel", main="ARIMA with Multiple Regessors forecast",type='l')
-lines(arima_forecast$mean, col="red", lwd=2)
-```
-
-```{r}
-checkresiduals(arima_with_regs)
-```
-
-Best MASE but still has the same problem with an unexplained increase in variance. 
-
-Trying with no seasonality adjustment. 
-```{r}
-library(forecast)
-# Define the target time series
-Precipreg_train = data3$precip[1:3000]
-Precipreg_test = data3$precip[3001:4343]
-AWNDreg_train = data3$AWND_EWMA[1:3000]
-AWNDreg_test = data3$AWND_EWMA[3001:4343]
-TMAXreg_train = data3$TMAX_EWMA[1:3000]
-TMAXreg_test = data3$TMAX_EWMA[3001:4343]
-TMINreg_train = data3$TMIN_EWMA[1:3000]
-TMINreg_test = data3$TMIN_EWMA[3001:4343]
-
-xreg_train<- cbind(Precipreg_train, AWNDreg_train, TMAXreg_train, TMINreg_train)
-xreg_test<- cbind(Precipreg_test, AWNDreg_test, TMAXreg_test, TMINreg_test)
-# ARIMA model with Rain as an external regressor
-
-arima_with_regs <- auto.arima(ts_train_noadj, xreg = xreg_train)
-summary(arima_with_regs)
-arima_forecast = forecast(arima_with_regs, h=length(test_data), xreg= xreg_test)
-  
-  
-accuracy(arima_forecast, test_data)
-plot(train_data, col="blue", xlab="Year", ylab="waterlevel", main="ARIMA with Multiple Regessors forecast",type='l')
-lines(arima_forecast$mean, col="red", lwd=2)
-```
+The analysis shows that their is seasonality but no trend. It also shows that rain does effect well water height, increasing the well water height by 0.02 inches for every inch of rain. The ARIMA model created is suitable for forecasting but suffers non constant variance of residuals, periods of higher inaccuracy. ARCH and GARCH may need to be applied to address this. 
 
 
 
