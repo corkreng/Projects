@@ -119,9 +119,18 @@ naive_model <- naive( train_data, h = length(test_data))
 naive_forecast = forecast(naive_model, h=length(test_data))
 naive_forecast$mean = naive_forecast$mean + ts_season[3001:4403]
 accuracy(naive_forecast, test_data)
-plot(train_data, col="blue", xlab="Year", ylab="waterlevel", main="naive forecast",type='l')
-lines(naive_forecast$mean, col="red", lwd=2)
+#plot(train_data, col="blue", xlab="Year", ylab="waterlevel", main="naive forecast",type='l')
+#lines(naive_forecast$mean, col="red", lwd=2)
+# Convert data to data frames for ggplot
+train_df <- data.frame(Time = time(data$DATE), WaterLevel = as.numeric(data$waterlevel))
+forecast_df <- data.frame(Time = time(naive_forecast$mean), Forecast = as.numeric(naive_forecast$mean))
 
+ggplot() +
+  geom_line(data = train_df, aes(x = Time, y = WaterLevel), color = "blue", size = 1) +
+  geom_line(data = forecast_df, aes(x = Time, y = Forecast), color = "red", size = 1) +
+  ggtitle("Naive Forecast") +
+  xlab("Year") + ylab("Water Level") +
+  theme_minimal()
 
 ```
 
@@ -150,8 +159,25 @@ xreg_test = data$precip[3001:4403]
 # ARIMA model with Rain as an external regressor
 
 arima_with_rain <- auto.arima(ts_train_adj, xreg = xreg_train)
+summary(arima_with_rain)
 
 
+arima_forecast = forecast(arima_with_rain, h=length(test_data), xreg= xreg_test)
+arima_forecast$mean = arima_forecast$mean + ts_season[3001:4403]
+  
+  
+accuracy(arima_forecast, test_data)
+
+
+train_df <- data.frame(Time = time(data$DATE), WaterLevel = as.numeric(data$waterlevel))
+forecast_df <- data.frame(Time = time(arima_forecast$mean), Forecast = as.numeric(arima_forecast$mean))
+
+ggplot() +
+  geom_line(data = train_df, aes(x = Time, y = WaterLevel), color = "blue", size = 1) +
+  geom_line(data = forecast_df, aes(x = Time, y = Forecast), color = "red", size = 1) +
+  ggtitle("Naive Forecast") +
+  xlab("Year") + ylab("Water Level") +
+  theme_minimal()
 ```
 Are baseline model is the naive model with seasonal adjustment which has a mase test 9.7. This arima model has a better mase. 
 
@@ -194,10 +220,17 @@ arima_forecast$mean = arima_forecast$mean + ts_season[3001:4403]
   
   
 accuracy(arima_forecast, test_data)
-plot(train_data, col="blue", xlab="Year", ylab="waterlevel", main="ARIMA with Rain forecast",type='l')
-lines(arima_forecast$mean, col="red", lwd=2)
 
 
+train_df <- data.frame(Time = time(data$DATE), WaterLevel = as.numeric(data$waterlevel))
+forecast_df <- data.frame(Time = time(arima_forecast$mean), Forecast = as.numeric(arima_forecast$mean))
+
+ggplot() +
+  geom_line(data = train_df, aes(x = Time, y = WaterLevel), color = "blue", size = 1) +
+  geom_line(data = forecast_df, aes(x = Time, y = Forecast), color = "red", size = 1) +
+  ggtitle("Naive Forecast") +
+  xlab("Year") + ylab("Water Level") +
+  theme_minimal()
 ```
 ```{r}
 # computing p values
@@ -225,8 +258,17 @@ arima_forecast$mean = arima_forecast$mean + ts_season[3001:4403]
   
   
 accuracy(arima_forecast, test_data)
-plot(train_data, col="blue", xlab="Year", ylab="waterlevel", main="ARIMA with Rain forecast",type='l')
-lines(arima_forecast$mean, col="red", lwd=2)
+
+
+train_df <- data.frame(Time = time(data$DATE), WaterLevel = as.numeric(data$waterlevel))
+forecast_df <- data.frame(Time = time(arima_forecast$mean), Forecast = as.numeric(arima_forecast$mean))
+
+ggplot() +
+  geom_line(data = train_df, aes(x = Time, y = WaterLevel), color = "blue", size = 1) +
+  geom_line(data = forecast_df, aes(x = Time, y = Forecast), color = "red", size = 1) +
+  ggtitle("Naive Forecast") +
+  xlab("Year") + ylab("Water Level") +
+  theme_minimal()
 ```
 
 ```{r}
