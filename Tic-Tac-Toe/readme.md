@@ -1,5 +1,11 @@
-This project was originally done in my senior year of my undergradaute studies in C++. It was then later imporved and translated into python. It uses the MiniMax algorithym so that the user can play agianst a computer. To do this copy and paste Tic.py into 
-include reinforcement learning and monte carlo tree search.
+This project was originally done in my senior year of my undergradaute studies in C++. It was then later improved and translated into python. It uses the MiniMax algorithym so that the user can play agianst a computer. To do this copy and paste Tic.py into https://www.onlinegdb.com/online_python_compiler and hit run right above that. 
+
+Reference for inputs:
+ 0 | 1 | 2
+__________
+ 3 | 4 | 5
+__________
+ 6 | 7 | 8
 
 
 
